@@ -4,7 +4,12 @@ use cosmwasm_std::{to_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Res
 use cw2::set_contract_version;
 use cw_storage_plus::Map;
 
+use cw721_base::contract::{
+    _transfer_nft as cw721_transfer_nft, execute_mint as cw721_execute_mint,
+};
+
 use crate::error::ContractError;
+use crate::msg::MintMsg;
 use crate::msg::{CountResponse, ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{State, STATE};
 
@@ -20,14 +25,14 @@ pub struct CW20Wrapper {
     pub address: Addr,
     pub amount: u128,
 }
-const CW20Bundle: Map<u128, CW20Wrapper> = Map::new("cw20_bundle");
+const CW20Bundle: Map<u128, Vec<CW20Wrapper>> = Map::new("cw20_bundle");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct CW721Wrapper {
     pub address: Addr,
-    pub token_id: u128,
+    pub token_id: String,
 }
-const CW721Bundle: Map<u128, CW721Wrapper> = Map::new("cw721_bundle");
+const CW721Bundle: Map<String, Vec<CW721Wrapper>> = Map::new("cw721_bundle");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct CW1155Wrapper {
@@ -35,7 +40,7 @@ pub struct CW1155Wrapper {
     pub token_id: u128,
     pub amount: u128,
 }
-const CW1155Bundle: Map<u128, CW1155Wrapper> = Map::new("cw1155_bundle");
+const CW1155Bundle: Map<u128, Vec<CW1155Wrapper>> = Map::new("cw1155_bundle");
 
 const BUNDLE_MAPPING: Map<u128, u128> = Map::new("bundle_mapping");
 
@@ -70,23 +75,90 @@ pub fn execute(
     match msg {
         ExecuteMsg::Increment {} => try_increment(deps),
         ExecuteMsg::Reset { count } => try_reset(deps, info, count),
-        ExecuteMsg::Mint {} => mint(deps),
+        ExecuteMsg::Mint(msg) => mint(deps, _env, info, msg),
         ExecuteMsg::DepositCW20 {} => deposit_cw20(deps),
-        ExecuteMsg::DepositCW721 {} => deposit_cw721(deps),
+        ExecuteMsg::DepositCW721 {
+            token_id,
+            bundle_id,
+        } => deposit_cw721(deps, _env, info, token_id, bundle_id),
         ExecuteMsg::DepositCW1155 {} => deposit_cw1155(deps),
+        ExecuteMsg::Withdraw { bundle_id } => withdraw(deps, _env, info, bundle_id),
     }
 }
 
-pub fn mint(deps: DepsMut) -> Result<Response, ContractError> {
-    Ok(Response::new())
+pub fn mint(
+    mut deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    msg: MintMsg,
+) -> Result<Response, ContractError> {
+    cw721_execute_mint(deps.branch(), env, info, msg.base.clone())?;
+
+    STATE.update(deps.storage, |mut state| -> Result<_, ContractError> {
+        state.count += 1;
+        Ok(state)
+    })?;
+
+    Ok(Response::default())
+}
+
+pub fn withdraw(
+    mut deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    bundle_id: String,
+) -> Result<Response, ContractError> {
+    let bundle = CW721Bundle.may_load(deps.storage, bundle_id)?;
+    if let Some(mut i) = bundle {
+        while let Some(asset) = i.pop() {
+            cw721_transfer_nft(
+                deps.branch(),
+                &env,
+                &info,
+                &info.sender.to_string(),
+                &asset.token_id,
+            )?;
+        }
+    }
+
+    Ok(Response::new().add_attribute("method", "withdraw"))
 }
 
 pub fn deposit_cw20(deps: DepsMut) -> Result<Response, ContractError> {
     Ok(Response::new())
 }
 
-pub fn deposit_cw721(deps: DepsMut) -> Result<Response, ContractError> {
-    Ok(Response::new())
+pub fn deposit_cw721(
+    mut deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token_id: String,
+    bundle_id: String,
+) -> Result<Response, ContractError> {
+    cw721_transfer_nft(
+        deps.branch(),
+        &env,
+        &info,
+        &env.contract.address.to_string(),
+        &token_id,
+    )?;
+
+    let bundle = CW721Bundle.may_load(deps.storage, bundle_id.clone())?;
+
+    if let Some(mut i) = bundle {
+        i.push(CW721Wrapper {
+            address: info.sender,
+            token_id,
+        });
+    } else {
+        let vector = vec![CW721Wrapper {
+            address: info.sender,
+            token_id,
+        }];
+        CW721Bundle.save(deps.storage, bundle_id, &vector)?;
+    }
+
+    Ok(Response::new().add_attribute("method", "deposit_cw721"))
 }
 
 pub fn deposit_cw1155(deps: DepsMut) -> Result<Response, ContractError> {
@@ -134,7 +206,10 @@ mod tests {
     fn proper_initialization() {
         let mut deps = mock_dependencies(&[]);
 
-        let msg = InstantiateMsg { count: 17 };
+        let msg = InstantiateMsg {
+            name: "name".to_string(),
+            symbol: "symbol".to_string(),
+        };
         let info = mock_info("creator", &coins(1000, "earth"));
 
         // we can just call .unwrap() to assert this was a success
@@ -151,7 +226,10 @@ mod tests {
     fn increment() {
         let mut deps = mock_dependencies(&coins(2, "token"));
 
-        let msg = InstantiateMsg { count: 17 };
+        let msg = InstantiateMsg {
+            name: "name".to_string(),
+            symbol: "symbol".to_string(),
+        };
         let info = mock_info("creator", &coins(2, "token"));
         let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -170,7 +248,10 @@ mod tests {
     fn reset() {
         let mut deps = mock_dependencies(&coins(2, "token"));
 
-        let msg = InstantiateMsg { count: 17 };
+        let msg = InstantiateMsg {
+            name: "name".to_string(),
+            symbol: "symbol".to_string(),
+        };
         let info = mock_info("creator", &coins(2, "token"));
         let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 

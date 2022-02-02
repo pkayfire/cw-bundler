@@ -3,6 +3,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct MintMsg {
+    pub base: Cw721MintMsg,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub name: String,
     pub symbol: String,
@@ -13,10 +18,11 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     Increment {},
     Reset { count: i32 },
-    Mint {},
+    Mint(MintMsg),
     DepositCW20 {},
-    DepositCW721 {},
+    DepositCW721 { token_id: String, bundle_id: String },
     DepositCW1155 {},
+    Withdraw { bundle_id: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
