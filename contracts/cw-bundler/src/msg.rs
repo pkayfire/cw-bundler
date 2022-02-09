@@ -1,10 +1,11 @@
 use cw721_base::msg::MintMsg as Cw721MintMsg;
+use cw721_base::Extension;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct MintMsg {
-    pub base: Cw721MintMsg,
+    pub base: Cw721MintMsg<Extension>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -17,12 +18,20 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Increment {},
-    Reset { count: i32 },
+    Reset {
+        count: i32,
+    },
     Mint(MintMsg),
     DepositCW20 {},
-    DepositCW721 { token_id: String, bundle_id: String },
+    DepositCW721 {
+        token_id: String,
+        bundle_id: String,
+        contract_address: String,
+    },
     DepositCW1155 {},
-    Withdraw { bundle_id: String },
+    Withdraw {
+        bundle_id: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
