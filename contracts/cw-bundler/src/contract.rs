@@ -67,8 +67,6 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Increment {} => try_increment(deps),
-        ExecuteMsg::Reset { count } => try_reset(deps, info, count),
         ExecuteMsg::Mint(msg) => mint(deps, env, info, msg),
         ExecuteMsg::DepositCW20 {} => deposit_cw20(deps),
         ExecuteMsg::DepositCW721 {
@@ -77,7 +75,7 @@ pub fn execute(
             bundle_id,
         } => deposit_cw721(deps, env, info, contract_address, token_id, bundle_id),
         ExecuteMsg::DepositCW1155 {} => deposit_cw1155(deps),
-        ExecuteMsg::Withdraw { bundle_id } => withdraw(deps, env, info, bundle_id),
+        ExecuteMsg::Withdraw { bundle_id } => withdraw(deps, info, bundle_id),
     }
 }
 
@@ -89,18 +87,11 @@ pub fn mint(
 ) -> Result<Response, ContractError> {
     let mint_msg = cw721_execute_msg::Mint(msg.base.clone());
     Cw721Contract::<Extension, Empty>::default().execute(deps.branch(), env, info, mint_msg)?;
-
-    // STATE.update(deps.storage, |mut state| -> Result<_, ContractError> {
-    //     state.count += 1;
-    //     Ok(state)
-    // })?;
-
     Ok(Response::default())
 }
 
 pub fn withdraw(
-    mut deps: DepsMut,
-    env: Env,
+    deps: DepsMut,
     info: MessageInfo,
     bundle_id: String,
 ) -> Result<Response, ContractError> {
@@ -133,7 +124,7 @@ pub fn deposit_cw20(deps: DepsMut) -> Result<Response, ContractError> {
 }
 
 pub fn deposit_cw721(
-    mut deps: DepsMut,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     contract_address: String,
@@ -175,25 +166,6 @@ pub fn deposit_cw1155(deps: DepsMut) -> Result<Response, ContractError> {
     Ok(Response::new())
 }
 
-pub fn try_increment(deps: DepsMut) -> Result<Response, ContractError> {
-    STATE.update(deps.storage, |mut state| -> Result<_, ContractError> {
-        state.count += 1;
-        Ok(state)
-    })?;
-
-    Ok(Response::new().add_attribute("method", "try_increment"))
-}
-pub fn try_reset(deps: DepsMut, info: MessageInfo, count: i32) -> Result<Response, ContractError> {
-    STATE.update(deps.storage, |mut state| -> Result<_, ContractError> {
-        if info.sender != state.owner {
-            return Err(ContractError::Unauthorized {});
-        }
-        state.count = count;
-        Ok(state)
-    })?;
-    Ok(Response::new().add_attribute("method", "reset"))
-}
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -209,8 +181,8 @@ fn query_count(deps: Deps) -> StdResult<CountResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{coin, from_binary, Uint128};
     use cw721::NumTokensResponse;
     use cw721_base::msg::MintMsg as Cw721MintMsg;
     use cw721_base::{Cw721Contract, Extension};
@@ -222,13 +194,26 @@ mod tests {
 
     fn setup_contract(deps: DepsMut) {
         let msg = InstantiateMsg {
-            name: "Cosmic Apes".into(),
-            symbol: "APE".into(),
+            name: "CW Bundled Asset".into(),
+            symbol: "CWBUNDLE".into(),
             minter: MINTER.into(),
         };
         let info = mock_info(MINTER, &[]);
         let res = instantiate(deps, mock_env(), info, msg).unwrap();
         assert_eq!(0, res.messages.len());
+    }
+
+    fn setup_cw721_contract(deps: DepsMut<'_>) -> Cw721Contract<'static, Extension, Empty> {
+        let contract = Cw721Contract::default();
+        let msg = InstantiateMsg {
+            name: "CW721 Token".to_string(),
+            symbol: "CW721".to_string(),
+            minter: MINTER.into(),
+        };
+        let info = mock_info(MINTER, &[]);
+        let res = contract.instantiate(deps, mock_env(), info, msg).unwrap();
+        assert_eq!(0, res.messages.len());
+        contract
     }
 
     #[test]
@@ -266,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn deposit_cw721() {
+    fn try_deposit_cw721() {
         let mut deps = mock_dependencies(&[]);
         setup_contract(deps.as_mut());
 
@@ -291,5 +276,45 @@ mod tests {
             .unwrap();
         let response: NumTokensResponse = from_binary(&count).unwrap();
         assert_eq!(1, response.count);
+
+        // set up dummy cw721 contract
+        let mut env = mock_env();
+        env.contract.address = Addr::unchecked("cw721_contract_address");
+        let mut deps = mock_dependencies(&[]);
+        let contract = setup_cw721_contract(deps.as_mut());
+
+        let mint_msg = cw721_execute_msg::Mint(cw721_base::MintMsg {
+            token_id: "CW721_1".into(),
+            owner: ALICE.into(),
+            extension: None,
+            token_uri: Some("ipfs://QmVKZ5YZYDqdnAQo93kaYbcMtzGgx9kvpAVwoERm5mZezh".to_string()),
+        });
+
+        let minter = mock_info(MINTER, &[]);
+        contract
+            .execute(deps.as_mut(), env, minter, mint_msg)
+            .unwrap();
+
+        // ensure num tokens is 1
+        let mut env = mock_env();
+        env.contract.address = Addr::unchecked("cw721_contract_address");
+        let count = contract
+            .query(deps.as_ref(), env, cw721_query_msg::NumTokens {})
+            .unwrap();
+        let response: NumTokensResponse = from_binary(&count).unwrap();
+        assert_eq!(1, response.count);
+
+        // deposit cw721 token
+        let mut env = mock_env();
+        env.contract.address = Addr::unchecked("cw721_contract_address");
+        let info = mock_info(MINTER, &[]);
+        let _ = deposit_cw721(
+            deps.as_mut(),
+            env,
+            info,
+            "cw721_contract_address".to_string(),
+            "CW721_1".to_string(),
+            TOKEN_ID.into(),
+        );
     }
 }
