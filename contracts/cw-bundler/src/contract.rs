@@ -30,14 +30,14 @@ pub struct CW20Wrapper {
     pub contract_address: Addr,
     pub amount: u128,
 }
-const CW20Bundle: Map<u128, Vec<CW20Wrapper>> = Map::new("cw20_bundle");
+const CW20_BUNDLE: Map<u128, Vec<CW20Wrapper>> = Map::new("cw20_bundle");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct CW721Wrapper {
     pub contract_address: Addr,
     pub token_id: String,
 }
-const CW721Bundle: Map<String, Vec<CW721Wrapper>> = Map::new("cw721_bundle");
+const CW721_BUNDLE: Map<String, Vec<CW721Wrapper>> = Map::new("cw721_bundle");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct CW1155Wrapper {
@@ -45,7 +45,7 @@ pub struct CW1155Wrapper {
     pub token_id: u128,
     pub amount: u128,
 }
-const CW1155Bundle: Map<u128, Vec<CW1155Wrapper>> = Map::new("cw1155_bundle");
+const CW1155_BUNDLE: Map<u128, Vec<CW1155Wrapper>> = Map::new("cw1155_bundle");
 
 const BUNDLE_MAPPING: Map<u128, u128> = Map::new("bundle_mapping");
 
@@ -56,6 +56,7 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> StdResult<Response> {
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     Cw721Contract::<Extension, Empty>::default().instantiate(deps, _env, info, msg)
 }
 
@@ -95,7 +96,7 @@ pub fn withdraw(
     info: MessageInfo,
     bundle_id: String,
 ) -> Result<Response, ContractError> {
-    let bundle = CW721Bundle.may_load(deps.storage, bundle_id)?;
+    let bundle = CW721_BUNDLE.may_load(deps.storage, bundle_id)?;
     let mut cw721_transfer_cosmos_msgs = vec![];
 
     if let Some(mut i) = bundle {
@@ -134,6 +135,7 @@ pub fn deposit_cw721(
     let transfer_cw721_msg = Cw721ExecuteMsg::TransferNft {
         recipient: env.contract.address.to_string().clone(),
         token_id: token_id.clone(),
+        //msg: to_binary("deposit_cw721").unwrap(),
     };
     let exec_cw721_transfer = WasmMsg::Execute {
         contract_addr: contract_address,
@@ -142,19 +144,18 @@ pub fn deposit_cw721(
     };
     let cw721_transfer_cosmos_msg: CosmosMsg = exec_cw721_transfer.into();
 
-    let bundle = CW721Bundle.may_load(deps.storage, bundle_id.clone())?;
-
+    let bundle = CW721_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
     if let Some(mut i) = bundle {
         i.push(CW721Wrapper {
-            contract_address: info.sender,
+            contract_address: info.sender, // fix
             token_id,
         });
     } else {
         let vector = vec![CW721Wrapper {
-            contract_address: info.sender,
+            contract_address: info.sender, // fix
             token_id,
         }];
-        CW721Bundle.save(deps.storage, bundle_id, &vector)?;
+        CW721_BUNDLE.save(deps.storage, bundle_id, &vector)?;
     }
 
     Ok(Response::new()
@@ -184,13 +185,13 @@ mod tests {
     use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cw721::NumTokensResponse;
+    use cw721::OwnerOfResponse;
     use cw721_base::msg::MintMsg as Cw721MintMsg;
     use cw721_base::{Cw721Contract, Extension};
 
     const TOKEN_ID: &str = "123";
     const MINTER: &str = "minter_address";
     const ALICE: &str = "alice_address";
-    const BOB: &str = "bob_address";
 
     fn setup_contract(deps: DepsMut) {
         let msg = InstantiateMsg {
@@ -211,7 +212,9 @@ mod tests {
             minter: MINTER.into(),
         };
         let info = mock_info(MINTER, &[]);
-        let res = contract.instantiate(deps, mock_env(), info, msg).unwrap();
+        let mut env = mock_env();
+        env.contract.address = Addr::unchecked("cw721_contract_address");
+        let res = contract.instantiate(deps, env, info, msg).unwrap();
         assert_eq!(0, res.messages.len());
         contract
     }
@@ -256,7 +259,6 @@ mod tests {
         setup_contract(deps.as_mut());
 
         let info = mock_info(MINTER, &[]);
-
         let mint_msg = cw721_execute_msg::Mint(Cw721MintMsg {
             token_id: TOKEN_ID.into(),
             owner: ALICE.into(),
@@ -305,16 +307,40 @@ mod tests {
         assert_eq!(1, response.count);
 
         // deposit cw721 token
-        let mut env = mock_env();
-        env.contract.address = Addr::unchecked("cw721_contract_address");
-        let info = mock_info(MINTER, &[]);
-        let _ = deposit_cw721(
+        let info = mock_info(ALICE, &[]);
+        let res = deposit_cw721(
             deps.as_mut(),
-            env,
+            mock_env(),
             info,
             "cw721_contract_address".to_string(),
             "CW721_1".to_string(),
             TOKEN_ID.into(),
+        )
+        .unwrap();
+
+        let transfer_cw721_msg = Cw721ExecuteMsg::TransferNft {
+            recipient: "cosmos2contract".to_string(),
+            token_id: "CW721_1".to_string(),
+        };
+        let exec_cw721_transfer = WasmMsg::Execute {
+            contract_addr: "cw721_contract_address".to_string(),
+            msg: to_binary(&transfer_cw721_msg).unwrap(),
+            funds: vec![],
+        };
+        let cw721_transfer_cosmos_msg: CosmosMsg = exec_cw721_transfer.into();
+
+        assert_eq!(
+            res,
+            Response::new()
+                .add_message(cw721_transfer_cosmos_msg)
+                .add_attribute("method", "deposit_cw721")
         );
+
+        // ensure num tokens in bundle is 1
+        let bundle = CW721_BUNDLE
+            .may_load(&deps.storage, TOKEN_ID.into())
+            .unwrap()
+            .unwrap();
+        assert_eq!(1, bundle.len());
     }
 }
