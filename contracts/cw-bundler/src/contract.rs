@@ -135,10 +135,9 @@ pub fn deposit_cw721(
     let transfer_cw721_msg = Cw721ExecuteMsg::TransferNft {
         recipient: env.contract.address.to_string().clone(),
         token_id: token_id.clone(),
-        //msg: to_binary("deposit_cw721").unwrap(),
     };
     let exec_cw721_transfer = WasmMsg::Execute {
-        contract_addr: contract_address,
+        contract_addr: contract_address.clone(),
         msg: to_binary(&transfer_cw721_msg)?,
         funds: vec![],
     };
@@ -147,12 +146,12 @@ pub fn deposit_cw721(
     let bundle = CW721_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
     if let Some(mut i) = bundle {
         i.push(CW721Wrapper {
-            contract_address: info.sender, // fix
+            contract_address: Addr::unchecked(contract_address),
             token_id,
         });
     } else {
         let vector = vec![CW721Wrapper {
-            contract_address: info.sender, // fix
+            contract_address: Addr::unchecked(contract_address),
             token_id,
         }];
         CW721_BUNDLE.save(deps.storage, bundle_id, &vector)?;
@@ -170,13 +169,33 @@ pub fn deposit_cw1155(deps: DepsMut) -> Result<Response, ContractError> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::GetCount {} => to_binary(&query_count(deps)?),
+        QueryMsg::Tokens {
+            owner,
+            start_after,
+            limit,
+        } => query_tokens(
+            deps,
+            _env,
+            cw721_query_msg::Tokens {
+                owner: owner,
+                start_after: start_after,
+                limit: limit,
+            },
+        ),
+        QueryMsg::NftInfo { token_id } => {
+            query_nft_info(deps, _env, cw721_query_msg::NftInfo { token_id: token_id })
+        }
     }
 }
 
-fn query_count(deps: Deps) -> StdResult<CountResponse> {
-    let state = STATE.load(deps.storage)?;
-    Ok(CountResponse { count: state.count })
+fn query_nft_info(deps: Deps, _env: Env, msg: cw721_query_msg) -> StdResult<Binary> {
+    let response = Cw721Contract::<Extension, Empty>::default().query(deps, _env, msg)?;
+    Ok(response)
+}
+
+fn query_tokens(deps: Deps, _env: Env, msg: cw721_query_msg) -> StdResult<Binary> {
+    let response = Cw721Contract::<Extension, Empty>::default().query(deps, _env, msg)?;
+    Ok(response)
 }
 
 #[cfg(test)]
