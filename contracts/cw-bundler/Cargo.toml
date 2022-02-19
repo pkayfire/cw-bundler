@@ -50,6 +50,7 @@ thiserror = { version = "1.0.26" }
 cw20 = "0.9.1"
 cw721 = "0.9.2"
 cw721-base = { version = "0.9.2", features = ["library"] }
+cw1155 = "0.9.1"
 
 [dev-dependencies]
 cosmwasm-schema = { version = "0.16.0" }

@@ -15,10 +15,11 @@ use cw721_base::msg::{
 };
 use cw721_base::{Cw721Contract, Extension};
 
+use cw1155::Cw1155ExecuteMsg;
+
 use crate::error::ContractError;
 use crate::msg::MintMsg;
 use crate::msg::{ExecuteMsg, QueryMsg};
-use crate::state::{State, STATE};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -41,15 +42,13 @@ pub struct CW721Wrapper {
 }
 const CW721_BUNDLE: Map<String, Vec<CW721Wrapper>> = Map::new("cw721_bundle");
 
-#[derive(Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct CW1155Wrapper {
     pub contract_address: Addr,
-    pub token_id: Uint128,
+    pub token_id: String,
     pub amount: Uint128,
 }
 const CW1155_BUNDLE: Map<String, Vec<CW1155Wrapper>> = Map::new("cw1155_bundle");
-
-const BUNDLE_MAPPING: Map<Uint128, Uint128> = Map::new("bundle_mapping");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -86,7 +85,15 @@ pub fn execute(
             amount,
             token_id,
             bundle_id,
-        } => deposit_cw1155(deps, env, amount, contract_address, token_id, bundle_id),
+        } => deposit_cw1155(
+            deps,
+            env,
+            info,
+            amount,
+            contract_address,
+            token_id,
+            bundle_id,
+        ),
         ExecuteMsg::Withdraw { bundle_id } => withdraw(deps, info, bundle_id),
     }
 }
@@ -208,12 +215,45 @@ pub fn deposit_cw721(
 pub fn deposit_cw1155(
     deps: DepsMut,
     env: Env,
+    info: MessageInfo,
     amount: Uint128,
     contract_address: String,
     token_id: String,
     bundle_id: String,
 ) -> Result<Response, ContractError> {
-    Ok(Response::new())
+    let transfer_cw1155_msg = Cw1155ExecuteMsg::SendFrom {
+        from: info.sender.to_string(),
+        to: env.contract.address.to_string().clone(),
+        token_id: token_id.clone(),
+        value: amount,
+        msg: None,
+    };
+    let exec_cw1155_transfer = WasmMsg::Execute {
+        contract_addr: contract_address.clone(),
+        msg: to_binary(&transfer_cw1155_msg)?,
+        funds: vec![],
+    };
+    let cw1155_transfer_cosmos_msg: CosmosMsg = exec_cw1155_transfer.into();
+
+    let bundle = CW1155_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
+    if let Some(mut i) = bundle {
+        i.push(CW1155Wrapper {
+            contract_address: Addr::unchecked(contract_address),
+            amount,
+            token_id,
+        });
+    } else {
+        let vector = vec![CW1155Wrapper {
+            contract_address: Addr::unchecked(contract_address),
+            amount,
+            token_id,
+        }];
+        CW1155_BUNDLE.save(deps.storage, bundle_id, &vector)?;
+    }
+
+    Ok(Response::new()
+        .add_message(cw1155_transfer_cosmos_msg)
+        .add_attribute("method", "deposit_cw1155"))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -254,7 +294,6 @@ mod tests {
     use cosmwasm_std::from_binary;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cw721::NumTokensResponse;
-    use cw721::OwnerOfResponse;
     use cw721_base::msg::MintMsg as Cw721MintMsg;
     use cw721_base::{Cw721Contract, Extension};
 
@@ -464,5 +503,67 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(1, bundle.len());
+    }
+
+    #[test]
+    fn try_deposit_cw1155() {
+        let mut deps = mock_dependencies(&[]);
+        setup_contract(deps.as_mut());
+
+        let info = mock_info(MINTER, &[]);
+        let mint_msg = cw721_execute_msg::Mint(Cw721MintMsg {
+            token_id: TOKEN_ID.into(),
+            owner: ALICE.into(),
+            extension: None,
+            token_uri: Some("ipfs://QmVKZ5YZYDqdnAQo93kaYbcMtzGgx9kvpAVwoERm5mZezh".to_string()),
+        });
+        let _ = Cw721Contract::<Extension, Empty>::default().execute(
+            deps.as_mut(),
+            mock_env(),
+            info,
+            mint_msg,
+        );
+
+        // ensure num tokens increases
+        let count = Cw721Contract::<Extension, Empty>::default()
+            .query(deps.as_ref(), mock_env(), cw721_query_msg::NumTokens {})
+            .unwrap();
+        let response: NumTokensResponse = from_binary(&count).unwrap();
+        assert_eq!(1, response.count);
+
+        // deposit cw1155 token
+        let info = mock_info(MINTER, &[]);
+        let res = deposit_cw1155(
+            deps.as_mut(),
+            mock_env(),
+            info,
+            Uint128::from(1000u128),
+            "cw1155_contract_address".to_string(),
+            "CW1155_1".to_string(),
+            TOKEN_ID.into(),
+        )
+        .unwrap();
+
+        let info = mock_info(MINTER, &[]);
+        let transfer_cw1155_msg = Cw1155ExecuteMsg::SendFrom {
+            from: info.sender.to_string(),
+            to: mock_env().contract.address.to_string(),
+            token_id: "CW1155_1".to_string(),
+            value: Uint128::from(1000u128),
+            msg: None,
+        };
+        let exec_cw1155_transfer = WasmMsg::Execute {
+            contract_addr: "cw1155_contract_address".to_string(),
+            msg: to_binary(&transfer_cw1155_msg).unwrap(),
+            funds: vec![],
+        };
+        let cw1155_transfer_cosmos_msg: CosmosMsg = exec_cw1155_transfer.into();
+
+        assert_eq!(
+            res,
+            Response::new()
+                .add_message(cw1155_transfer_cosmos_msg)
+                .add_attribute("method", "deposit_cw1155")
+        );
     }
 }
