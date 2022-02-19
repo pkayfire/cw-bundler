@@ -1,3 +1,4 @@
+use cosmwasm_std::Uint128;
 use cw721_base::msg::MintMsg as Cw721MintMsg;
 use cw721_base::Extension;
 use schemars::JsonSchema;
@@ -18,13 +19,22 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Mint(MintMsg),
-    DepositCW20 {},
+    DepositCW20 {
+        amount: Uint128,
+        bundle_id: String,
+        contract_address: String,
+    },
     DepositCW721 {
         token_id: String,
         bundle_id: String,
         contract_address: String,
     },
-    DepositCW1155 {},
+    DepositCW1155 {
+        amount: Uint128,
+        token_id: String,
+        bundle_id: String,
+        contract_address: String,
+    },
     Withdraw {
         bundle_id: String,
     },
