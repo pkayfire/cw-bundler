@@ -9,7 +9,7 @@ use cw_storage_plus::Map;
 
 use cw20::Cw20ExecuteMsg;
 
-use cw721::{Cw721ExecuteMsg, Cw721ReceiveMsg};
+use cw721::Cw721ExecuteMsg;
 use cw721_base::msg::{
     ExecuteMsg as cw721_execute_msg, InstantiateMsg, QueryMsg as cw721_query_msg,
 };
