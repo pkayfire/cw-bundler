@@ -14,6 +14,9 @@ pub enum ContractError {
 
     #[error("Expired")]
     Expired {},
+
+    #[error("MissingReceiveHook")]
+    MissingReceiveHook {},
 }
 
 impl From<cw721_base::ContractError> for ContractError {

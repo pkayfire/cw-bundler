@@ -1,8 +1,14 @@
 use cosmwasm_std::Uint128;
-use cw721_base::msg::MintMsg as Cw721MintMsg;
-use cw721_base::Extension;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+use cw20::Cw20ReceiveMsg;
+
+use cw721::Cw721ReceiveMsg;
+use cw721_base::msg::MintMsg as Cw721MintMsg;
+use cw721_base::Extension;
+
+use cw1155::Cw1155ReceiveMsg;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct MintMsg {
@@ -16,9 +22,23 @@ pub struct InstantiateMsg {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub enum ReceiveMsg {
+    Cw20ReceiveMsg(Cw20ReceiveMsg),
+    Cw721ReceiveMsg(Cw721ReceiveMsg),
+    Cw1155ReceiveMsg(Cw1155ReceiveMsg),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Cw20HookMsg {
+    DepositCw20 { bundle_id: String },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     Mint(MintMsg),
+    Receive(ReceiveMsg),
     DepositCW20 {
         amount: Uint128,
         bundle_id: String,
@@ -51,10 +71,4 @@ pub enum QueryMsg {
     NftInfo {
         token_id: String,
     },
-}
-
-// We define a custom struct for each query response
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct CountResponse {
-    pub count: i32,
 }
