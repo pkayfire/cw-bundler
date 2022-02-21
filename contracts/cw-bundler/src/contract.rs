@@ -1,13 +1,13 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Binary, CosmosMsg, Deps, DepsMut, Empty, Env, MessageInfo, Response,
-    StdResult, Uint128, WasmMsg,
+    from_binary, to_binary, Addr, Binary, CosmosMsg, Deps, DepsMut, Empty, Env, MessageInfo,
+    Response, StdError, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw_storage_plus::Map;
 
-use cw20::Cw20ExecuteMsg;
+use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 
 use cw721::Cw721ExecuteMsg;
 use cw721_base::msg::{
@@ -15,11 +15,11 @@ use cw721_base::msg::{
 };
 use cw721_base::{Cw721Contract, Extension};
 
-use cw1155::Cw1155ExecuteMsg;
+use cw1155::{Cw1155ExecuteMsg, Cw1155ReceiveMsg};
 
 use crate::error::ContractError;
 use crate::msg::MintMsg;
-use crate::msg::{ExecuteMsg, QueryMsg};
+use crate::msg::{Cw20HookMsg, ExecuteMsg, QueryMsg, ReceiveMsg};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,58 @@ pub fn execute(
             bundle_id,
         ),
         ExecuteMsg::Withdraw { bundle_id } => withdraw(deps, info, bundle_id),
+        ExecuteMsg::Receive(msg) => match msg {
+            ReceiveMsg::Cw20ReceiveMsg(msg) => receive_cw20(deps, env, info, msg),
+            ReceiveMsg::Cw721ReceiveMsg(msg) => receive_cw721(deps, env, info, msg),
+            ReceiveMsg::Cw1155ReceiveMsg(msg) => receive_cw1155(deps, env, info, msg),
+        },
     }
+}
+
+pub fn receive_cw20(
+    mut deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    cw20_msg: Cw20ReceiveMsg,
+) -> Result<Response, ContractError> {
+    let msg = from_binary(&cw20_msg.msg);
+    match msg {
+        Ok(Cw20HookMsg::DepositCw20 { bundle_id }) => {
+            let bundle = CW20_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
+            if let Some(mut i) = bundle {
+                i.push(CW20Wrapper {
+                    contract_address: Addr::unchecked(cw20_msg.sender), // check later
+                    amount: cw20_msg.amount,
+                });
+            } else {
+                let vector = vec![CW20Wrapper {
+                    contract_address: Addr::unchecked(cw20_msg.sender), // check later
+                    amount: cw20_msg.amount,
+                }];
+                CW20_BUNDLE.save(deps.storage, bundle_id, &vector)?;
+            }
+            Ok(Response::new().add_attribute("method", "receive_cw20"))
+        }
+        _ => Err(ContractError::MissingReceiveHook {}),
+    }
+}
+
+pub fn receive_cw721(
+    mut deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    msg: Cw721ReceiveMsg,
+) -> Result<Response, ContractError> {
+    Ok(Response::default())
+}
+
+pub fn receive_cw1155(
+    mut deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    msg: Cw1155ReceiveMsg,
+) -> Result<Response, ContractError> {
+    Ok(Response::default())
 }
 
 pub fn mint(
