@@ -74,7 +74,7 @@ pub fn execute(
             contract_address,
             amount,
             bundle_id,
-        } => deposit_cw20(deps, env, contract_address, amount, bundle_id),
+        } => deposit_cw20(deps, env, info, contract_address, amount, bundle_id),
         ExecuteMsg::DepositCW721 {
             contract_address,
             token_id,
@@ -141,11 +141,13 @@ pub fn withdraw(
 pub fn deposit_cw20(
     deps: DepsMut,
     env: Env,
+    info: MessageInfo,
     contract_address: String,
     amount: Uint128,
     bundle_id: String,
 ) -> Result<Response, ContractError> {
-    let transfer_cw20_msg = Cw20ExecuteMsg::Transfer {
+    let transfer_cw20_msg = Cw20ExecuteMsg::TransferFrom {
+        owner: info.sender.to_string(),
         recipient: env.contract.address.to_string().clone(),
         amount,
     };
