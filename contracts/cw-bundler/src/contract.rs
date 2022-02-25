@@ -266,33 +266,13 @@ pub fn withdraw(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Tokens {
-            owner,
-            start_after,
-            limit,
-        } => query_tokens(
-            deps,
-            _env,
-            cw721_query_msg::Tokens {
-                owner: owner,
-                start_after: start_after,
-                limit: limit,
-            },
-        ),
-        QueryMsg::NftInfo { token_id } => {
-            query_nft_info(deps, _env, cw721_query_msg::NftInfo { token_id: token_id })
+        // add custom queries here
+        _ => {
+            let msg: cw721_query_msg = msg.into();
+            let response = Cw721Contract::<Extension, Empty>::default().query(deps, _env, msg)?;
+            Ok(response)
         }
     }
-}
-
-fn query_nft_info(deps: Deps, _env: Env, msg: cw721_query_msg) -> StdResult<Binary> {
-    let response = Cw721Contract::<Extension, Empty>::default().query(deps, _env, msg)?;
-    Ok(response)
-}
-
-fn query_tokens(deps: Deps, _env: Env, msg: cw721_query_msg) -> StdResult<Binary> {
-    let response = Cw721Contract::<Extension, Empty>::default().query(deps, _env, msg)?;
-    Ok(response)
 }
 
 #[cfg(test)]
