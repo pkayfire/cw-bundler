@@ -13,6 +13,7 @@ use cw721::{Cw721ExecuteMsg, Cw721ReceiveMsg};
 use cw721_base::msg::{
     ExecuteMsg as cw721_execute_msg, InstantiateMsg, QueryMsg as cw721_query_msg,
 };
+use cw721_base::state::TokenInfo;
 use cw721_base::{Cw721Contract, Extension};
 
 use cw1155::{Cw1155BatchReceiveMsg, Cw1155ExecuteMsg};
@@ -92,6 +93,11 @@ pub fn receive_cw20(
     let deposit_msg: DepositCwMsg = serde_json_wasm::from_slice(&bytes)?;
     let bundle_id = deposit_msg.bundle_id;
 
+    let token_info = Cw721Contract::<Extension, Empty>::default()
+        .tokens
+        .load(deps.storage, &bundle_id)?;
+    check_can_deposit(&token_info, msg.sender.clone())?;
+
     let bundle = CW20_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
     if let Some(mut i) = bundle {
         i.push(CW20Wrapper {
@@ -124,6 +130,11 @@ pub fn receive_cw721(
     let deposit_msg: DepositCwMsg = serde_json_wasm::from_slice(&bytes)?;
     let bundle_id = deposit_msg.bundle_id;
 
+    let token_info = Cw721Contract::<Extension, Empty>::default()
+        .tokens
+        .load(deps.storage, &bundle_id)?;
+    check_can_deposit(&token_info, msg.sender.clone())?;
+
     let bundle = CW721_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
     if let Some(mut i) = bundle {
         i.push(CW721Wrapper {
@@ -155,6 +166,11 @@ pub fn receive_cw1155(
     let bytes = base64::decode(deposit_msg_string)?;
     let deposit_msg: DepositCwMsg = serde_json_wasm::from_slice(&bytes)?;
     let bundle_id = deposit_msg.bundle_id;
+
+    let token_info = Cw721Contract::<Extension, Empty>::default()
+        .tokens
+        .load(deps.storage, &bundle_id)?;
+    check_can_deposit(&token_info, msg.operator.clone())?;
 
     let bundle = CW1155_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
     if let Some(mut i) = bundle {
@@ -191,8 +207,31 @@ pub fn mint(
     msg: MintMsg,
 ) -> Result<Response, ContractError> {
     let mint_msg = cw721_execute_msg::Mint(msg.base.clone());
-    Cw721Contract::<Extension, Empty>::default().execute(deps.branch(), env, info, mint_msg)?;
-    Ok(Response::default())
+    let res =
+        Cw721Contract::<Extension, Empty>::default().execute(deps.branch(), env, info, mint_msg)?;
+    Ok(res)
+}
+
+pub fn check_can_deposit(
+    token: &TokenInfo<Extension>,
+    sender: String,
+) -> Result<(), ContractError> {
+    // only owner can deposit
+    if token.owner == sender {
+        return Ok(());
+    }
+    Err(ContractError::Unauthorized {})
+}
+
+pub fn check_can_withdraw(
+    info: &MessageInfo,
+    token: &TokenInfo<Extension>,
+) -> Result<(), ContractError> {
+    // only owner can withdraw
+    if token.owner == info.sender {
+        return Ok(());
+    }
+    Err(ContractError::Unauthorized {})
 }
 
 pub fn withdraw(
@@ -201,8 +240,12 @@ pub fn withdraw(
     info: MessageInfo,
     bundle_id: String,
 ) -> Result<Response, ContractError> {
-    let mut cw_transfer_cosmos_msgs = vec![];
+    let token_info = Cw721Contract::<Extension, Empty>::default()
+        .tokens
+        .load(deps.storage, &bundle_id)?;
+    check_can_withdraw(&info, &token_info)?;
 
+    let mut cw_transfer_cosmos_msgs = vec![];
     let bundle = CW721_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
     if let Some(mut i) = bundle {
         while let Some(asset) = i.pop() {
@@ -284,7 +327,7 @@ mod tests {
     use cw721_base::msg::MintMsg as Cw721MintMsg;
     use cw721_base::{Cw721Contract, Extension};
 
-    const TOKEN_ID: &str = "123";
+    const TOKEN_ID: &str = "a";
     const MINTER: &str = "minter_address";
     const ALICE: &str = "alice_address";
 
@@ -354,7 +397,7 @@ mod tests {
 
         let info = mock_info(MINTER, &[]);
         let msg = Cw20ReceiveMsg {
-            sender: "someone".to_string(),
+            sender: ALICE.into(),
             amount: Uint128::from(2u128),
             msg: Binary::from_base64(&"eyJidW5kbGVfaWQiOiAiYSJ9".to_string()).unwrap(),
         };
@@ -363,7 +406,7 @@ mod tests {
         let res = receive_cw20(deps.as_mut(), info, msg).unwrap();
         let info = mock_info(MINTER, &[]);
         let msg = Cw20ReceiveMsg {
-            sender: "someone".to_string(),
+            sender: ALICE.into(),
             amount: Uint128::from(2u128),
             msg: Binary::from_base64(&"eyJidW5kbGVfaWQiOiAiYSJ9".to_string()).unwrap(),
         };
@@ -406,7 +449,7 @@ mod tests {
 
         let info = mock_info(MINTER, &[]);
         let msg = Cw721ReceiveMsg {
-            sender: "someone".to_string(),
+            sender: ALICE.into(),
             token_id: TOKEN_ID.into(),
             msg: Binary::from_base64(&"eyJidW5kbGVfaWQiOiAiYSJ9".to_string()).unwrap(),
         };
@@ -415,7 +458,7 @@ mod tests {
         let res = receive_cw721(deps.as_mut(), info, msg).unwrap();
         let info = mock_info(MINTER, &[]);
         let msg = Cw721ReceiveMsg {
-            sender: "someone".to_string(),
+            sender: ALICE.into(),
             token_id: TOKEN_ID.into(),
             msg: Binary::from_base64(&"eyJidW5kbGVfaWQiOiAiYSJ9".to_string()).unwrap(),
         };
@@ -458,7 +501,7 @@ mod tests {
 
         let info = mock_info(MINTER, &[]);
         let msg = Cw1155BatchReceiveMsg {
-            operator: "operator".to_string(),
+            operator: ALICE.into(),
             from: None,
             batch: vec![(TOKEN_ID.into(), Uint128::from(2u128))],
             msg: Binary::from_base64(&"eyJidW5kbGVfaWQiOiAiYSJ9".to_string()).unwrap(),
@@ -468,7 +511,7 @@ mod tests {
         let res = receive_cw1155(deps.as_mut(), info, msg).unwrap();
         let info = mock_info(MINTER, &[]);
         let msg = Cw1155BatchReceiveMsg {
-            operator: "operator".to_string(),
+            operator: ALICE.into(),
             from: None,
             batch: vec![(TOKEN_ID.into(), Uint128::from(2u128))],
             msg: Binary::from_base64(&"eyJidW5kbGVfaWQiOiAiYSJ9".to_string()).unwrap(),
