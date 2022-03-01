@@ -2,7 +2,7 @@
 
 This repo is a CosmWasm smart contract that allows users and other contracts to bundle any combination of `cw20`, `cw721`, `cw1155` tokens under a single `cw721` token.
 
-Disclaimer:
+Disclaimer: This smart contract has not been audited. Please use and fork at your own risk.
 
 ## Compatibility
 
