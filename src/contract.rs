@@ -261,6 +261,7 @@ pub fn withdraw(
             let cw721_transfer_cosmos_msg: CosmosMsg = exec_cw721_transfer.into();
             cw_transfer_cosmos_msgs.push(cw721_transfer_cosmos_msg);
         }
+        CW721_BUNDLE.save(deps.storage, bundle_id.clone(), &i)?;
     }
 
     let bundle = CW20_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
@@ -278,28 +279,30 @@ pub fn withdraw(
             let cw20_transfer_cosmos_msg: CosmosMsg = exec_cw20_transfer.into();
             cw_transfer_cosmos_msgs.push(cw20_transfer_cosmos_msg);
         }
+        CW20_BUNDLE.save(deps.storage, bundle_id.clone(), &i)?;
     }
 
-    let bundle = CW1155_BUNDLE.may_load(deps.storage, bundle_id)?;
+    let bundle = CW1155_BUNDLE.may_load(deps.storage, bundle_id.clone())?;
     let mut cw1155_batch = vec![];
     if let Some(mut i) = bundle {
         while let Some(asset) = i.pop() {
             cw1155_batch.push((asset.token_id, asset.amount));
         }
+        CW1155_BUNDLE.save(deps.storage, bundle_id, &i)?;
     }
-    let transfer_cw721_msg = Cw1155ExecuteMsg::BatchSendFrom {
+    let transfer_cw1155_msg = Cw1155ExecuteMsg::BatchSendFrom {
         from: env.contract.address.to_string(),
         to: info.sender.to_string(),
         batch: cw1155_batch,
         msg: None,
     };
-    let exec_cw721_transfer = WasmMsg::Execute {
+    let exec_cw1155_transfer = WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&transfer_cw721_msg)?,
+        msg: to_binary(&transfer_cw1155_msg)?,
         funds: vec![],
     };
-    let cw721_transfer_cosmos_msg: CosmosMsg = exec_cw721_transfer.into();
-    cw_transfer_cosmos_msgs.push(cw721_transfer_cosmos_msg);
+    let cw1155_transfer_cosmos_msg: CosmosMsg = exec_cw1155_transfer.into();
+    cw_transfer_cosmos_msgs.push(cw1155_transfer_cosmos_msg);
 
     Ok(Response::new()
         .add_messages(cw_transfer_cosmos_msgs)
@@ -330,6 +333,7 @@ mod tests {
     const TOKEN_ID: &str = "a";
     const MINTER: &str = "minter_address";
     const ALICE: &str = "alice_address";
+    const CONTRACT: &str = "contract_address";
 
     fn setup_contract(deps: DepsMut) {
         let msg = InstantiateMsg {
@@ -395,7 +399,7 @@ mod tests {
             mint_msg,
         );
 
-        let info = mock_info(MINTER, &[]);
+        let info = mock_info(CONTRACT, &[]);
         let msg = Cw20ReceiveMsg {
             sender: ALICE.into(),
             amount: Uint128::from(2u128),
@@ -404,7 +408,7 @@ mod tests {
 
         // receive cw20 tokens
         let res = receive_cw20(deps.as_mut(), info, msg).unwrap();
-        let info = mock_info(MINTER, &[]);
+        let info = mock_info(CONTRACT, &[]);
         let msg = Cw20ReceiveMsg {
             sender: ALICE.into(),
             amount: Uint128::from(2u128),
@@ -447,7 +451,7 @@ mod tests {
             mint_msg,
         );
 
-        let info = mock_info(MINTER, &[]);
+        let info = mock_info(CONTRACT, &[]);
         let msg = Cw721ReceiveMsg {
             sender: ALICE.into(),
             token_id: TOKEN_ID.into(),
@@ -456,7 +460,7 @@ mod tests {
 
         // receive cw721 token
         let res = receive_cw721(deps.as_mut(), info, msg).unwrap();
-        let info = mock_info(MINTER, &[]);
+        let info = mock_info(CONTRACT, &[]);
         let msg = Cw721ReceiveMsg {
             sender: ALICE.into(),
             token_id: TOKEN_ID.into(),
@@ -499,7 +503,7 @@ mod tests {
             mint_msg,
         );
 
-        let info = mock_info(MINTER, &[]);
+        let info = mock_info(CONTRACT, &[]);
         let msg = Cw1155BatchReceiveMsg {
             operator: ALICE.into(),
             from: None,
@@ -509,7 +513,7 @@ mod tests {
 
         // receive cw721 token
         let res = receive_cw1155(deps.as_mut(), info, msg).unwrap();
-        let info = mock_info(MINTER, &[]);
+        let info = mock_info(CONTRACT, &[]);
         let msg = Cw1155BatchReceiveMsg {
             operator: ALICE.into(),
             from: None,
@@ -531,5 +535,46 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(1, bundle.len());
+    }
+
+    #[test]
+    fn try_withdraw() {
+        let mut deps = mock_dependencies(&[]);
+        setup_contract(deps.as_mut());
+
+        let info = mock_info(MINTER, &[]);
+        let mint_msg = cw721_execute_msg::Mint(Cw721MintMsg {
+            token_id: TOKEN_ID.into(),
+            owner: ALICE.into(),
+            extension: None,
+            token_uri: Some("ipfs://QmVKZ5YZYDqdnAQo93kaYbcMtzGgx9kvpAVwoERm5mZezh".to_string()),
+        });
+        let _ = Cw721Contract::<Extension, Empty>::default().execute(
+            deps.as_mut(),
+            mock_env(),
+            info,
+            mint_msg,
+        );
+
+        let info = mock_info(MINTER, &[]);
+        let msg = Cw721ReceiveMsg {
+            sender: ALICE.into(),
+            token_id: TOKEN_ID.into(),
+            msg: Binary::from_base64(&"eyJidW5kbGVfaWQiOiAiYSJ9".to_string()).unwrap(),
+        };
+
+        // receive cw721 token
+        let _res = receive_cw721(deps.as_mut(), info, msg).unwrap();
+
+        // withdraw
+        let info = mock_info(ALICE, &[]);
+        let _res = withdraw(deps.as_mut(), mock_env(), info, "a".into()).unwrap();
+
+        // ensure num tokens in bundle is 0
+        let bundle = CW721_BUNDLE
+            .may_load(&deps.storage, "a".into())
+            .unwrap()
+            .unwrap();
+        assert_eq!(0, bundle.len());
     }
 }
