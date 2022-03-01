@@ -1,0 +1,2 @@
+cargo:rustc-env=TYPENUM_BUILD_CONSTS=/Users/pkayfire/Documents/Workspace/web3/cw-bundler/target/rls/debug/build/typenum-d5cfdc67e21d59c3/out/consts.rs
+cargo:rustc-env=TYPENUM_BUILD_OP=/Users/pkayfire/Documents/Workspace/web3/cw-bundler/target/rls/debug/build/typenum-d5cfdc67e21d59c3/out/op.rs
