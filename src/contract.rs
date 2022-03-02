@@ -104,6 +104,7 @@ pub fn receive_cw20(
             contract_address: info.sender.clone(),
             amount: msg.amount,
         });
+        CW20_BUNDLE.save(deps.storage, bundle_id.clone(), &i)?;
     } else {
         let vector = vec![CW20Wrapper {
             contract_address: info.sender.clone(),
@@ -141,6 +142,7 @@ pub fn receive_cw721(
             contract_address: info.sender.clone(),
             token_id: msg.token_id.clone(),
         });
+        CW721_BUNDLE.save(deps.storage, bundle_id.clone(), &i)?;
     } else {
         let vector = vec![CW721Wrapper {
             contract_address: info.sender.clone(),
@@ -181,6 +183,7 @@ pub fn receive_cw1155(
                 amount: asset.1,
             });
         }
+        CW1155_BUNDLE.save(deps.storage, bundle_id.clone(), &i)?;
     } else {
         let mut vector = vec![];
         while let Some(asset) = msg.batch.pop() {
