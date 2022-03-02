@@ -289,20 +289,20 @@ pub fn withdraw(
             cw1155_batch.push((asset.token_id, asset.amount));
         }
         CW1155_BUNDLE.save(deps.storage, bundle_id, &i)?;
+        let transfer_cw1155_msg = Cw1155ExecuteMsg::BatchSendFrom {
+            from: env.contract.address.to_string(),
+            to: info.sender.to_string(),
+            batch: cw1155_batch,
+            msg: None,
+        };
+        let exec_cw1155_transfer = WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_binary(&transfer_cw1155_msg)?,
+            funds: vec![],
+        };
+        let cw1155_transfer_cosmos_msg: CosmosMsg = exec_cw1155_transfer.into();
+        cw_transfer_cosmos_msgs.push(cw1155_transfer_cosmos_msg);
     }
-    let transfer_cw1155_msg = Cw1155ExecuteMsg::BatchSendFrom {
-        from: env.contract.address.to_string(),
-        to: info.sender.to_string(),
-        batch: cw1155_batch,
-        msg: None,
-    };
-    let exec_cw1155_transfer = WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&transfer_cw1155_msg)?,
-        funds: vec![],
-    };
-    let cw1155_transfer_cosmos_msg: CosmosMsg = exec_cw1155_transfer.into();
-    cw_transfer_cosmos_msgs.push(cw1155_transfer_cosmos_msg);
 
     Ok(Response::new()
         .add_messages(cw_transfer_cosmos_msgs)
